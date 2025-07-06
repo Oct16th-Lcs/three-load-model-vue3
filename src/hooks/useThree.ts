@@ -125,6 +125,7 @@ export function useThree(options: UseThreeOptions) {
 
   // 创建立方体全景
   function updateCubePanorama(urls: string[]) {
+    loading.value = true
     if (currentPanorama) {
       scene.value?.remove(currentPanorama)
       currentPanorama.geometry.dispose()
@@ -164,6 +165,8 @@ export function useThree(options: UseThreeOptions) {
       }
     }).catch(err => {
       console.error('贴图加载失败:', err)
+    }).finally(() => {
+      loading.value = false
     })
   }
 

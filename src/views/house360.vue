@@ -24,7 +24,7 @@ const modelData = {
   cameraFar: 20
 }
 
-const { init, updateCubePanorama, destroy } = useThree({
+const { init, updateCubePanorama, destroy, loading } = useThree({
   containerId: 'house360-container'
 })
 
@@ -39,7 +39,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="container" id="house360-container"></div>
+  <div
+    class="container"
+    id="house360-container"
+    v-loading="loading"
+    element-loading-text="数据加载中..."
+    element-loading-spinner="el-icon-loading"
+    element-loading-background="rgba(0, 0, 0, 0.5)"
+  ></div>
 </template>
 
 <style scoped>

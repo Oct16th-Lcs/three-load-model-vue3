@@ -70,12 +70,14 @@ export default class PanoramaViewer {
   public loadPanorama(name: string, position: Vector3, url: string) {
     const loader = new THREE.TextureLoader();
     loader.load(url, (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
       const geometry = new THREE.SphereGeometry(16, 256, 256);
       geometry.scale(1, 1, -1);
 
       const material = new THREE.MeshBasicMaterial({
         map: texture
       });
+      // material.map.colorSpace = 'srgb';
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = name;

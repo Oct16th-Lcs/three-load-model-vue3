@@ -1,5 +1,6 @@
 import './assets/main.css'
 import 'normalize.css'
+import 'amfe-flexible'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

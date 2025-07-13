@@ -5,7 +5,12 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/3dModel',
+      redirect: '/panorama',
+    },
+    {
+      path: '/panorama',
+      name: '全景看房',
+      component: () => import('../views/panoramaViewer.vue'),
     },
     {
       path: '/3dModel',
@@ -15,14 +20,14 @@ const router = createRouter({
       // which is lazy-loaded when the route is visited.
       component: () => import('../views/load3dModel.vue'),
     },
-    {
-      path: '/360house',
-      name: '全景看房',
-      // route level code-splitting
-      // this generates a separate chunk (About.[hash].js) for this route
-      // which is lazy-loaded when the route is visited.
-      component: () => import('../views/house360.vue'),
-    },
+    // {
+    //   path: '/360house',
+    //   name: '全景看房-1',
+    //   // route level code-splitting
+    //   // this generates a separate chunk (About.[hash].js) for this route
+    //   // which is lazy-loaded when the route is visited.
+    //   component: () => import('../views/house360.vue'),
+    // },
   ],
 })
 

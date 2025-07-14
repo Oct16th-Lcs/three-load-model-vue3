@@ -4,16 +4,45 @@
  @description 全景看房
 -->
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { onMounted, onBeforeUnmount, ref, computed, nextTick } from 'vue';
 import PanoramaViewer from '@/utils/panoramaViewer';
 import { rooms } from '@/config/data.ts'
+import type { Vector3 } from 'three'
+import { ElMessage } from 'element-plus'
+
+interface InteractivePoint {
+  key: string;
+  value: string;
+  description: string;
+  cover: string;
+  position: Vector3;
+}
+
+interface InteractivePointWithRoom extends InteractivePoint {
+  room: string;
+}
 
 let viewer: InstanceType<typeof PanoramaViewer> | null = null;
 
 const curRoom = ref('living-room');
 
+const interactivePoints = computed(() => {
+  const res: InteractivePointWithRoom[] = []
+  rooms.forEach(room => {
+    if (room.interactivePoints && room.interactivePoints.length > 0) {
+      room.interactivePoints.forEach(point => {
+        res.push({
+          ...point,
+          room: room.key,
+        });
+      })
+    }
+  })
+  return res;
+});
 
-onMounted(() => {
+
+onMounted(async () => {
   const container = document.getElementById('panorama-container')!;
   viewer = new PanoramaViewer(container);
 
@@ -21,6 +50,18 @@ onMounted(() => {
   rooms.map(item => {
     viewer?.loadPanorama(item.name, item.position, item.url);
   })
+
+  // 设置交互点
+  viewer.setInteractivePoints(interactivePoints.value);
+
+  // 等待 DOM 渲染完成后再绑定元素
+  await nextTick();
+  const elements = document.querySelectorAll('.point');
+  elements.forEach((el, index) => {
+    if (viewer && viewer['interactivePoints'][index]) {
+      viewer['interactivePoints'][index].element = el as HTMLElement;
+    }
+  });
   viewer.render();
 });
 
@@ -31,10 +72,10 @@ function handleSwitchRoom(roomKey: string) {
     viewer.switchToRoom(targetRoom.name); // 切换到目标房间
   }
 }
-//
-// function updateCamera() {
-//   viewer.updateCameraPosition(0, 0, 0);
-// }
+
+const handleReactivePointClick = (point) => {
+  ElMessage(`您点击了${point.value}`)
+};
 
 onBeforeUnmount(() => {
   viewer?.destroy();
@@ -50,6 +91,33 @@ onBeforeUnmount(() => {
       <b class="text">{{ room.name }}</b>
       <i class="icon"></i>
     </span>
+  </div>
+  <!-- 交互点 -->
+  <div
+    class="point"
+    v-for="(point, index) in interactivePoints"
+    :key="index"
+    :class="[`point-${index}`, `point-${point.key}`]"
+    @click="handleReactivePointClick(point)"
+    v-show="point.room === curRoom"
+  >
+    <div class="label" :class="[`label-${index}`, `label-${point.key}`]">
+      <label class="label-tips">
+        <div class="cover">
+          <i
+            class="icon"
+            :style="{
+                background: `url(${point.cover}) no-repeat center`,
+                'background-size': 'contain',
+              }"
+          ></i>
+        </div>
+        <div class="info">
+          <p class="p1">{{ point.value }}</p>
+          <p class="p2">{{ point.description }}</p>
+        </div>
+      </label>
+    </div>
   </div>
 </template>
 
@@ -102,4 +170,165 @@ onBeforeUnmount(() => {
     }
   }
 }
+.point {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 10;
+
+  .label {
+    position: absolute;
+    top: -16px;
+    left: -16px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 1);
+    text-align: center;
+    line-height: 32px;
+    font-weight: 100;
+    font-size: 14px;
+    cursor: help;
+    transform: scale(0, 0);
+    transition: all 0.3s ease-in-out;
+    backdrop-filter: blur(4px);
+
+    &::before,
+    &::after {
+      content: '';
+      display: inline-block;
+      background: rgba(255, 255, 255, 1);
+      height: 100%;
+      width: 100%;
+      border-radius: 50%;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      margin-left: -10px;
+      margin-top: -10px;
+    }
+
+    &::before {
+      animation: bounce-wave 1.5s infinite;
+    }
+
+    &::after {
+      animation: bounce-wave 1.5s -0.4s infinite;
+    }
+
+    .label-tips {
+      height: 88px;
+      width: 200px;
+      overflow: hidden;
+      position: absolute;
+      top: -32px;
+      right: -220px;
+      font-size: 32px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px groove rgba(255, 255, 255, 0.5);
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      border-radius: 16px;
+      display: flex;
+      cursor: move;
+      justify-content: space-between;
+      align-content: center;
+      box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+
+      .cover {
+        width: 80px;
+        height: 100%;
+
+        .icon {
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          filter: drop-shadow(1px 1px 4px rgba(0, 0, 0, 0.1));
+        }
+      }
+
+      .info {
+        width: calc(100% - 80px);
+        height: 100%;
+        overflow: hidden;
+        padding-left: 12px;
+
+        p {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: left;
+          text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+
+          &.p1 {
+            font-size: 24px;
+            color: #1d1f24;
+            font-weight: 800;
+            margin: 12px 0 2px;
+          }
+
+          &.p2 {
+            font-size: 18px;
+            color: #00aa47;
+            font-weight: 500;
+          }
+        }
+      }
+    }
+
+    &.label-sofa {
+      .label-tips {
+        left: -220px;
+        flex-direction: row-reverse;
+
+        .info {
+          padding: 0 12px 0 0;
+
+          p {
+            text-align: right;
+          }
+        }
+      }
+    }
+  }
+
+  .text {
+    position: absolute;
+    top: 30px;
+    left: -120px;
+    width: 200px;
+    padding: 20px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid #ffffff;
+    color: #ffffff;
+    line-height: 1.3em;
+    font-weight: 100;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    text-align: justify;
+    text-align-last: left;
+  }
+
+  &:hover .text {
+    opacity: 1;
+  }
+
+  &.visible .label {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes bounce-wave {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(3.6);
+    opacity: 0;
+  }
+}
+
 </style>

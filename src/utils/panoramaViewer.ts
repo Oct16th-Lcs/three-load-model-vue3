@@ -16,6 +16,13 @@ export default class PanoramaViewer {
   private container: HTMLElement;
   private animationId: number | null = null; // 动画请求 ID
   private tweenGroup: TWEEN.Group;
+  private interactivePoints: { position: THREE.Vector3; element: HTMLElement | null }[] = [];
+
+  private dragState = {
+    dragging: false,
+    draggedPoint: null as { position: THREE.Vector3; element: HTMLElement | null } | null,
+    offset: new THREE.Vector3()
+  };
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -27,6 +34,11 @@ export default class PanoramaViewer {
     this.initControls();
     this.setupResizeEvent();
     this.animate();
+
+    // 绑定事件
+    window.addEventListener('mousedown', this.onMouseDown.bind(this));
+    window.addEventListener('mousemove', this.onMouseMove.bind(this));
+    window.addEventListener('mouseup', this.onMouseUp.bind(this));
   }
 
   // 初始化场景
@@ -56,12 +68,10 @@ export default class PanoramaViewer {
     this.controls = new OrbitControls(this.camera as THREE.PerspectiveCamera, this.renderer!.domElement);
     this.controls.target.set(0, 0, 0);
     this.controls.enableDamping = true;
-    this.controls.enableZoom = true;
     this.controls.enablePan = false;
     this.controls.maxDistance = 12;
     this.controls.minPolarAngle = Math.PI / 2;
     this.controls.maxPolarAngle = Math.PI / 2;
-    this.controls.dampingFactor = 0.1; // 更细腻的阻尼效果
     // this.controls.autoRotate = true;
     // this.controls.autoRotateSpeed = 2;
   }
@@ -81,13 +91,82 @@ export default class PanoramaViewer {
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = name;
-      mesh.position.set(position.x, position.y, position.z);
+      mesh.position.copy(position);
       mesh.rotation.y = Math.PI / 2;
       this.scene!.add(mesh);
       return mesh;
     }, undefined, (error) => {
       console.error('全景图加载失败:', error);
     });
+  }
+
+  public setInteractivePoints(points: { position: THREE.Vector3 }[]) {
+    this.interactivePoints = points.map(p => ({
+      position: p.position,
+      element: null
+    }));
+
+    // 添加一个不可见的平面对象作为拖拽参考面
+    if (!this.camera || !this.scene) return;
+
+    // 获取相机参数
+    const camera = this.camera;
+    const fov = camera.fov; // 视野角度（垂直方向）
+    const aspect = camera.aspect; // 宽高比
+    const distance = 20; // 假设我们放置平面在相机前方 20 单位处
+
+    // 根据 FOV 和距离计算平面尺寸
+    const vFovRad = THREE.MathUtils.degToRad(fov);
+    const height = 2 * Math.tan(vFovRad / 2) * distance;
+    const width = height * aspect;
+
+    console.log('plane size:', width, height);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0; // 可以保持原值，也可以设置为 y=0
+    ground.name = 'dragPlane';
+    this.scene!.add(ground);
+  }
+
+  private updateInteractivePointsVisibility() {
+    if (!this.camera || !this.scene || !this.renderer) return;
+
+    const raycaster = new THREE.Raycaster();
+    const camera = this.camera;
+    const renderer = this.renderer;
+    const size = {
+      width: renderer.domElement.clientWidth,
+      height: renderer.domElement.clientHeight
+    };
+
+    for (const point of this.interactivePoints) {
+      if (!point.element) continue;
+
+      const screenPosition = point.position.clone().project(camera);
+      const vector2 = new THREE.Vector2(screenPosition.x, screenPosition.y);
+      raycaster.setFromCamera(vector2, camera);
+
+      const intersects = raycaster.intersectObjects(this.scene.children, true);
+      const pointDistance = point.position.distanceTo(camera.position);
+      let visible = true;
+
+      if (intersects.length > 0 && intersects[0].distance < pointDistance) {
+        visible = false;
+      }
+
+      if (screenPosition.z <= 1) {
+        point.element.classList.toggle('visible', visible);
+        const translateX = screenPosition.x * size.width * 0.5;
+        const translateY = -screenPosition.y * size.height * 0.5;
+        point.element.style.transform = `translateX(${translateX}px) translateY(${translateY}px)`;
+      } else {
+        point.element.classList.remove('visible');
+      }
+    }
   }
 
   // 渲染函数
@@ -100,6 +179,7 @@ export default class PanoramaViewer {
     this.animationId = requestAnimationFrame(() => this.animate());
     this.tweenGroup.update(); // ✅ 使用 tweenGroup 更新所有动画
     this.controls?.update(); // 仅当 autoRotate 启用时有效
+    this.updateInteractivePointsVisibility(); // 更新交互点状态
     this.render();
   }
 
@@ -182,7 +262,7 @@ export default class PanoramaViewer {
       })
       .onComplete(() => {
         this.controls!.enabled = true;
-        // this.controls!.target.copy(lookAtTarget);
+        this.controls!.target.copy(lookAtTarget);
         this.controls!.update();
         if (onComplete) onComplete();
       })
@@ -220,6 +300,86 @@ export default class PanoramaViewer {
           console.log('切换完成');
         })
     }
+  }
+
+  // 拖拽逻辑
+  private onMouseDown(event: MouseEvent) {
+    if (!this.camera || !this.scene || !this.renderer) return;
+
+    const mouse = new THREE.Vector2(
+      (event.clientX / window.innerWidth) * 2 - 1,
+      -(event.clientY / window.innerHeight) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera);
+
+    // 检测与场景中 "dragPlane" 平面的交点
+    const dragPlane = this.scene!.getObjectByName('dragPlane');
+    if (!dragPlane) return;
+    const intersects = raycaster.intersectObject(dragPlane, false);
+    if (intersects.length > 0) {
+      const worldPosition = intersects[0].point;
+
+      for (const point of this.interactivePoints) {
+        if (point.element && point.element.innerText === event.target?.innerText) {
+          console.log('🚀🚀🚀 ~method: onMouseDown', point.element)
+          this.dragState = {
+            dragging: true,
+            draggedPoint: point,
+            offset: worldPosition.clone().sub(point.position)
+          };
+          break;
+        }
+      }
+    }
+  }
+
+  private onMouseMove(event: MouseEvent) {
+    if (!this.dragState.dragging || !this.camera || !this.renderer) return;
+
+    const mouse = new THREE.Vector2(
+      (event.clientX / window.innerWidth) * 2 - 1,
+      -(event.clientY / window.innerHeight) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera!);
+
+    const dragPlane = this.scene!.getObjectByName('dragPlane');
+    if (!dragPlane) return;
+
+    const intersects = raycaster.intersectObject(dragPlane, false);
+
+
+    if (intersects.length > 0) {
+      const worldPosition = intersects[0].point;
+      if (this.dragState.draggedPoint) {
+        this.dragState.draggedPoint.position.copy(worldPosition.clone().sub(this.dragState.offset));
+        this.updateInteractivePointPosition(this.dragState.draggedPoint);
+      }
+    }
+
+  }
+  private onMouseUp() {
+    this.dragState.dragging = false;
+    this.dragState.draggedPoint = null;
+  }
+
+
+  private updateInteractivePointPosition(point: { position: THREE.Vector3; element: HTMLElement | null }) {
+    if (!point.element) return;
+
+    const screenPosition = point.position.clone().project(this.camera!);
+    const size = {
+      width: this.renderer!.domElement.clientWidth,
+      height: this.renderer!.domElement.clientHeight
+    };
+
+    const translateX = screenPosition.x * size.width * 0.5;
+    const translateY = -screenPosition.y * size.height * 0.5;
+    console.log('🚀🚀🚀 ~method: updateInteractivePointPosition', translateX, translateY)
+    point.element.style.transform = `translateX(${translateX}px) translateY(${translateY}px)`;
   }
 
   // 切换全景图
